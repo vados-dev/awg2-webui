@@ -1,0 +1,39 @@
+services:
+  awg2-webui:
+    image: ghcr.io/sysmslog/awg2-webui:latest
+    container_name: awg2-webui
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - awg_config:/etc/amnezia/amneziawg
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "443:443"      # HTTPS Web UI
+      - "80:80"        # HTTP (for Let's Encrypt ACME challenge)
+      - "51820:51820/udp"  # AmneziaWG
+    environment:
+      # Web UI credentials
+      WEB_USER: admin
+      WEB_PASS: changeme          # Change this!
+      SECRET_KEY: ""              # Auto-generated if empty
+
+      # Server endpoint (IP:port clients will connect to)
+      AWG_ENDPOINT: auto          # auto = detect public IP
+
+      # AWG settings
+      AWG_PORT: 51820
+      AWG_INTERFACE: awg0
+      AWG_SUBNET: 10.8.0.0/24
+      AWG_DNS: 1.1.1.1,8.8.8.8
+
+      # SSL (optional — configure via Web UI Settings instead)
+      # SSL_DOMAIN: vpn.example.com
+      # SSL_EMAIL: admin@example.com
+
+volumes:
+  awg_config:

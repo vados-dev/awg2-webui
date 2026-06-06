@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Backups & temp
+*.bak
+*.tar
+*.log
+
+# Test artifacts
+test_config/
+backup/
+bin/
+
+# macOS
+.DS_Store
+*.command
+
+# Local scripts
+screenshot.js
+test_server_setup.js
+test-*.sh
+take_screenshot.command
+
+# Docker local builds
+awg2-webui-*.tar
+
+# Secrets (never commit)
+*.pem
+*.key
+*.crt
