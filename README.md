@@ -4,13 +4,14 @@
 
 ![AmneziaWG](https://img.shields.io/badge/AmneziaWG-2.0-7C3AED?style=for-the-badge&logo=wireguard)
 ![Docker](https://img.shields.io/badge/Docker-Multi--arch-2496ED?style=for-the-badge&logo=docker)
+![Proxmox](https://img.shields.io/badge/Proxmox-LXC-E57000?style=for-the-badge&logo=proxmox)
 [![Build](https://img.shields.io/github/actions/workflow/status/Pashgen/awg2-webui/build.yml?style=for-the-badge&logo=github-actions&label=CI)](https://github.com/Pashgen/awg2-webui/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Pashgen/awg2-webui?style=for-the-badge&logo=github)](https://github.com/Pashgen/awg2-webui/releases)
 ![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)
 
 **Web management panel for AmneziaWG 2.0 VPN server — built entirely from source**
 
-[Quick Start](#-quick-start) • [Features](#-features) • [MikroTik CHR](#-mikrotik-chr) • [Screenshots](#-screenshots) • [Troubleshooting](#-troubleshooting)
+[Quick Start](#-quick-start) • [Features](#-features) • [Proxmox LXC](#-proxmox-lxc) • [MikroTik CHR](#-mikrotik-chr) • [Screenshots](#-screenshots) • [Troubleshooting](#-troubleshooting)
 
 </div>
 
@@ -167,6 +168,43 @@ Certificate renews automatically every Tuesday at 03:00.
 | `linux/amd64` | MikroTik CHR, VPS (Hetzner, DigitalOcean) |
 | `linux/arm64` | Raspberry Pi 4, Oracle ARM, Apple M1 VMs |
 | `linux/arm/v7` | Raspberry Pi 3, older ARM devices |
+
+---
+
+## 🖥️ Proxmox LXC
+
+One-liner install directly from your **Proxmox host shell**:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Pashgen/awg2-webui/main/ct/awg2-webui.sh)"
+```
+
+This will:
+1. Create a **Debian 12 LXC** container (2 CPU, 512 MB RAM, 4 GB disk)
+2. Install Docker inside the container
+3. Pull and start `pashgen/awg2-webui:latest`
+4. Show the access URL when done
+
+> **Note:** The LXC must run as **privileged** (`unprivileged=0`) because AmneziaWG requires `NET_ADMIN` and kernel module access.
+
+### Manual LXC setup
+
+If you prefer step-by-step control:
+
+```bash
+# On Proxmox host — create LXC
+pct create 200 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+  --hostname awg2-webui \
+  --cores 2 --memory 512 --swap 512 \
+  --rootfs local-lvm:4 \
+  --net0 name=eth0,bridge=vmbr0,ip=dhcp \
+  --features nesting=1 \
+  --unprivileged 0 \
+  --start 1
+
+# Inside LXC — install
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Pashgen/awg2-webui/main/install/awg2-webui-install.sh)"
+```
 
 ---
 
