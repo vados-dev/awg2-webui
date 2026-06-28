@@ -140,7 +140,7 @@ jobs:
         with:
           images: ${{ env.image_path }}-${{ matrix.suffix }}
           flavor: |
-            latest-true
+            latest: true
             prefix=
             suffix=
           tags: |
