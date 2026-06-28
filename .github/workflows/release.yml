@@ -29,6 +29,7 @@ env:
   DEF_ARCH: amd64,arm64,arm
   REGISTRY: ghcr.io
   IMAGE: awg2-webui
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -41,14 +42,6 @@ jobs:
       sha_tag: ${{ steps.meta.outputs.sha_tag }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            suffix: amd64
-          - platform: linux/arm64
-            suffix: arm64
-          - platform: linux/arm/v7
-            suffix: armv7
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -147,8 +140,13 @@ jobs:
         with:
           images: ${{ env.image_path }}-${{ matrix.suffix }}
           flavor: |
-            latest=true
+            latest-true
+            prefix=
+            suffix=
           tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=raw,value=${{ env.tag }}
             type=raw,value=${{ env.sha_tag }}
@@ -157,15 +155,21 @@ jobs:
         id: build
         uses: docker/build-push-action@v7
         with:
+          build-args: |
+            BUILD_VERSION=${{ env.image_version }}
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
-          provenance: false
-          sbom: false
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.suffix }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+            - ${{ steps.meta.outputs.image }}-${{ matrix.suffix }}:${{ steps.meta.outputs.tag }}
+            - ${{ steps.meta.outputs.image }}-${{ matrix.suffix }}:${{ steps.meta.outputs.sha_tag }}
+            - ${{ steps.meta.outputs.image }}-${{ matrix.suffix }}:${{ steps.meta.outputs.tags }}
+            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}
+            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha_tag }}-${{ matrix.suffix }}
+            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tags }}-${{ matrix.suffix }}
 
       - name: Enforce 45MB image size budget
         run: |
@@ -183,6 +187,56 @@ jobs:
             echo "Warning: Image over 42MB soft warning (${SIZE_MB} MB)"
           fi
 
+      - name: Push latest/lts tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${{ steps.meta.outputs.image }}:latest" \
+            -t "${{ steps.meta.outputs.image }}:lts" \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha_tag }}"
+
+      - name: Save image metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > image.env <<EOF
+          IMAGE=${{ steps.meta.outputs.image }}
+          IMAGE_TAG=${{ steps.meta.outputs.tag }}
+          IMAGE_SHA_TAG=${{ steps.meta.outputs.sha_tag }}
+          IMAGE_REF=${{ steps.meta.outputs.image_ref }}
+          IMAGE_REF_SHA=${{ steps.meta.outputs.image_ref_sha }}
+          EOF
+
+      - name: Upload image metadata artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-image-metadata
+          path: ci-image.env
+          if-no-files-found: error
+
+      - name: Write summary
+        shell: bash
+        run: |
+          {
+            echo "### CI image metadata"
+            echo
+            echo "- image: \`${{ steps.meta.outputs.image }}\`"
+            echo "- tag: \`${{ steps.meta.outputs.tag }}\`"
+            echo "- sha tag: \`${{ steps.meta.outputs.sha_tag }}\`"
+            echo "- image ref: \`${{ steps.meta.outputs.image_ref }}\`"
+            echo "- image ref sha: \`${{ steps.meta.outputs.image_ref_sha }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          
+      - name: Print usage hint
+        shell: bash
+        run: |
+          echo "Use this image in workflows:"
+          echo "  ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
+          echo "  ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha_tag }}"
+          echo "  ${{ steps.meta.outputs.image }}:latest"
+          echo "  ${{ steps.meta.outputs.image }}:lts"
+          
   manifest:
     needs: build
     runs-on: ubuntu-24.04
