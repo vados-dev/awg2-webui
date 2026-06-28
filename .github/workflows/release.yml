@@ -53,8 +53,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       
-      - name: Set image version
-        id: meta
+      - name: Get Environment
+        id: getenv
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,9 +62,6 @@ jobs:
         run: |
           set -euo pipefail
           repo_lc="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          image="ghcr.io/${repo_lc}/${IMAGE}"
-          suffix_input="${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}"
-          suffix_input="$(echo "${suffix_input}" | tr '[:upper:]' '[:lower:]' | xargs)"
 
           next_tag() {
             local t="$1"
@@ -87,18 +84,16 @@ jobs:
             fi
             printf 'v%d.%d.%d\n' "${major}" "${minor}" "${patch}"
           }
-
           base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${IMAGE_TAG}")"
           if [[ ! "${base_numeric_tag}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-            # First run or malformed variable fallback: generate v0.0.1.
             base_numeric_tag="v0.0.0"
           fi
-
-          # Discover latest numeric tag from existing GHCR image versions.
+          regisry_lc="$(echo "${{ env.REGISTRY }}")"
           owner_lc="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           repo_name="${GITHUB_REPOSITORY#*/}"
           package_name="${repo_name}"
           package_name_enc="${package_name//\//%2F}"
+          image_lc=${registry_lc}/${owner_lc}/${package_name_enc}
           tags_json="$(gh api -H "Accept: application/vnd.github+json" "/users/${owner_lc}/packages/container/${package_name_enc}/versions?per_page=100" 2>/dev/null || echo '[]')"
           latest_registry_numeric_tag="$(
             jq -r '
@@ -114,14 +109,11 @@ jobs:
           else
             highest_numeric_tag="${base_numeric_tag}"
           fi
-
-          tag="$(next_tag "${highest_numeric_tag}")${suffix_input}"
+          tag="$(next_tag "${highest_numeric_tag}")"
           tag_sanitized="$(echo "${tag}" | tr '/:@ ' '-' | tr -cd 'a-zA-Z0-9._-')"
-          echo "image=${image}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag_sanitized}" >> "${GITHUB_OUTPUT}"
           echo "sha_tag=sha-${GITHUB_SHA::12}" >> "${GITHUB_OUTPUT}"
-          echo "image_ref=${image}:${tag_sanitized}" >> "${GITHUB_OUTPUT}"
-          echo "image_ref_sha=${image}:sha-${GITHUB_SHA::12}" >> "${GITHUB_OUTPUT}"
+          echo "image_path=${image_lc}" >> "${GITHUB_OUTPUT}"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v4
@@ -137,15 +129,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set metadata
+        id: meta
         uses: docker/metadata-action@v6
         with:
-          platform: ${{ matrix.platform }}
           images: |
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.image_ref }}
+            ${{ steps.getenv.output.image_path }}
+          platform: ${{ matrix.platform }}
           tags: |
-            type=semver,pattern={{ steps.version.output.tag }},suffix=-${{ matrix.suffix }}
+            type=semver,pattern={{ steps.getenv.output.tag }},suffix=-${{ matrix.suffix }}
             type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.suffix }}
-            type=raw,value=${{ inputs.tag }}-${{ matrix.suffix }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ steps.getenv.output.sha_tag }},suffix=-${{ matrix.suffix }}
 
       - name: Build Docker images
         id: build
