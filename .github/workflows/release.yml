@@ -93,7 +93,7 @@ jobs:
           repo_name="${GITHUB_REPOSITORY#*/}"
           package_name="${repo_name}"
           package_name_enc="${package_name//\//%2F}"
-          image_lc=${registry_lc}/${owner_lc}/${package_name_enc}
+          image_lc=${regisry_lc}/${owner_lc}/${package_name_enc}
           tags_json="$(gh api -H "Accept: application/vnd.github+json" "/users/${owner_lc}/packages/container/${package_name_enc}/versions?per_page=100" 2>/dev/null || echo '[]')"
           latest_registry_numeric_tag="$(
             jq -r '
@@ -194,11 +194,7 @@ jobs:
       - name: Create multi-arch manifests
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            BASE="${{ inputs.tag }}"
-          else
-            BASE="${GITHUB_REF_NAME#v}"
-          fi
+          BASE="${{ steps.getenv.output.tag }}"
           echo "Combining per-arch images for base: $BASE"
           while IFS= read -r TAG; do
             [ -z "$TAG" ] && continue
