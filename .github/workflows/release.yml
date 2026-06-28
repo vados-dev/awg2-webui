@@ -1,0 +1,218 @@
+name: Release Docker image
+
+on:
+  push:
+    branches: main
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      suffixes:
+        description: "Build platforms e.g. (amd64,arm64,arm)"
+        required: false
+        default: ""
+        type: string
+      tag:
+        description: 'Image tag (e.g. dev-snapshot, v1.2.3-test)'
+        required: true
+        default: 'v0.0.1'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEF_ARCH: amd64,arm64,arm
+  REGISTRY: ghcr.io
+  IMAGE: awg2-webui
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      image_ref: ${{ steps.meta.outputs.image_ref }}
+      image_ref_sha: ${{ steps.meta.outputs.image_ref_sha }}
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.tag }}
+      sha_tag: ${{ steps.meta.outputs.sha_tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            suffix: amd64
+          - platform: linux/arm64
+            suffix: arm64
+          - platform: linux/arm/v7
+            suffix: armv7
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Set image version
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_TAG: ${{ vars.CI_IMAGE_VER || '' }}
+        run: |
+          set -euo pipefail
+          repo_lc="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${repo_lc}/${IMAGE}"
+          suffix_input="${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}"
+          suffix_input="$(echo "${suffix_input}" | tr '[:upper:]' '[:lower:]' | xargs)"
+
+          next_tag() {
+            local t="$1"
+            local major minor patch
+            major="${t#v}"; major="${major%%.*}"
+            minor="${t#v${major}.}"; minor="${minor%%.*}"
+            patch="${t##*.}"
+            if (( patch < 99 )); then
+              patch=$((patch + 1))
+            elif (( minor < 99 )); then
+              minor=$((minor + 1))
+              patch=0
+            elif (( major < 99 )); then
+              major=$((major + 1))
+              minor=0
+              patch=0
+            else
+              echo "Tag range exhausted at ${t}" >&2
+              return 1
+            fi
+            printf 'v%d.%d.%d\n' "${major}" "${minor}" "${patch}"
+          }
+
+          base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${CI_IMAGE_VER}")"
+          if [[ ! "${base_numeric_tag}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            # First run or malformed variable fallback: generate v0.0.1.
+            base_numeric_tag="v0.0.0"
+          fi
+
+          # Discover latest numeric tag from existing GHCR image versions.
+          owner_lc="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          package_name="${repo_name}"
+          package_name_enc="${package_name//\//%2F}"
+          tags_json="$(gh api -H "Accept: application/vnd.github+json" "/users/${owner_lc}/packages/container/${package_name_enc}/versions?per_page=100" 2>/dev/null || echo '[]')"
+          latest_registry_numeric_tag="$(
+            jq -r '
+              [
+                .[]?
+                | (.metadata.container.tags // [])[]
+                | capture("^(?<n>v[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,2})").n
+              ] | unique | .[]
+            ' <<< "${tags_json}" 2>/dev/null | sort -V | tail -n1
+          )"
+          if [[ "${latest_registry_numeric_tag:-}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            highest_numeric_tag="$(printf '%s\n%s\n' "${base_numeric_tag}" "${latest_registry_numeric_tag}" | sort -V | tail -n1)"
+          else
+            highest_numeric_tag="${base_numeric_tag}"
+          fi
+
+          tag="$(next_tag "${highest_numeric_tag}")${suffix_input}"
+          tag_sanitized="$(echo "${tag}" | tr '/:@ ' '-' | tr -cd 'a-zA-Z0-9._-')"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag_sanitized}" >> "${GITHUB_OUTPUT}"
+          echo "sha_tag=sha-${GITHUB_SHA::12}" >> "${GITHUB_OUTPUT}"
+          echo "image_ref=${image}:${tag_sanitized}" >> "${GITHUB_OUTPUT}"
+          echo "image_ref_sha=${image}:sha-${GITHUB_SHA::12}" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v4
+        
+      - name: Setup buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          platform: ${{ matrix.platform }}
+          images: |
+            ${{ env.REGISTRY }}/${{ steps.version.outputs.image_ref }}
+          tags: |
+            type=semver,pattern={{ steps.version.output.tag }},suffix=-${{ matrix.suffix }}
+            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.suffix }}
+            type=raw,value=${{ inputs.tag }}-${{ matrix.suffix }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Build Docker images
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+
+      - name: Enforce 15MB image size budget
+        run: |
+          set -euo pipefail
+          FIRST_TAG=$(printf '%s\n' '${{ steps.meta.outputs.tags }}' | head -n1)
+          SIZE_BYTES=$(docker buildx imagetools inspect "$FIRST_TAG" --raw \
+            | jq '[.layers[].size] | add')
+          SIZE_MB=$(awk "BEGIN { printf \"%.2f\", $SIZE_BYTES / 1048576 }")
+          echo "Image $FIRST_TAG compressed size: ${SIZE_MB} MB"
+          echo "- ${{ matrix.suffix }}: **${SIZE_MB} MB**" >> "$GITHUB_STEP_SUMMARY"
+          if awk -v s="$SIZE_MB" 'BEGIN { exit !(s+0 > 15) }'; then
+            echo "::error::Image exceeds 15MB budget (${SIZE_MB} MB)"
+            exit 1
+          fi
+          if awk -v s="$SIZE_MB" 'BEGIN { exit !(s+0 > 12) }'; then
+            echo "::warning::Image over 12MB soft warning (${SIZE_MB} MB)"
+          fi
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Create multi-arch manifests
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BASE="${{ inputs.tag }}"
+          else
+            BASE="${GITHUB_REF_NAME#v}"
+          fi
+          echo "Combining per-arch images for base: $BASE"
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "  -> $TAG"
+            docker buildx imagetools create --tag "$TAG" \
+              "${{ env.IMAGE }}:${BASE}-amd64" \
+              "${{ env.IMAGE }}:${BASE}-arm64" \
+              "${{ env.IMAGE }}:${BASE}-armv7"
+          done <<< "${{ steps.meta.outputs.tags }}"
