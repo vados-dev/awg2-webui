@@ -139,10 +139,6 @@ jobs:
           IMAGE_VERSION: ${{ env.image_version }}
         with:
           images: ${{ env.image_path }}-${{ matrix.suffix }}
-          flavor: |
-            latest=true
-            prefix=
-            suffix=
           tags: |
             type=ref,event=branch
             type=ref,event=tag
