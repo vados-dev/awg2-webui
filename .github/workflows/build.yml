@@ -8,9 +8,9 @@ on:
 #        required: true
 #        default: "linux/amd64,linux/arm/v7"
 #        type: string
-  push:
-    branches: [main]
-    tags: ["v*.*.*"]
+#  push:
+#    branches: [main]
+ #   tags: ["v*.*.*"]
   pull_request:
     branches: [main]
 
