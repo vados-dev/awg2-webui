@@ -62,14 +62,11 @@ jobs:
             type=semver,pattern={{version}}
           flavor: |
             latest=false
-          labels: |
-            maintainer={{ github.actor }}
-            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
-            org.opencontainers.image.revision={{commit_short}}
-            org.opencontainers.image.version={{version}}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ matrix.arch.platform }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
