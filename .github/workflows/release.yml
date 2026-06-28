@@ -58,7 +58,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE_TAG: ${{ vars.CI_IMAGE_VER || '' }}
+          IMAGE_TAG: ${{ vars.IMAGE_VER || '' }}
         run: |
           set -euo pipefail
           repo_lc="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
