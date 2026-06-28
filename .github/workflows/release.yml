@@ -210,17 +210,33 @@ jobs:
       - name: Create multi-arch manifests
         run: |
           set -euo pipefail
-          BASE="${{ steps.meta.output.tags }}"
+          BASE="${{ env.tag }}"
           echo "Combining per-arch images for base: $BASE"
           while IFS= read -r TAG; do
             [ -z "$TAG" ] && continue
             echo "  -> $TAG"
             docker buildx imagetools create --tag "$TAG" \
-              "${{ env.IMAGE_PATH }}-${{ matrix.suffix }}:$TAG \
+              "${{ env.image_path }}:$TAG-amd64 \
+              "${{ env.image_path }}:$TAG-arm64 \
+              "${{ env.image_path }}:$TAG-arm \
           done <<< "${{ steps.meta.outputs.tags }}"
+          BASE="latest"
+          echo "Combining per-arch images for base: $BASE"
           while IFS= read -r TAG_SHA; do
             [ -z "$TAG_SHA" ] && continue
             echo "  -> $TAG_SHA"
             docker buildx imagetools create --tag "$TAG_SHA" \
-              "${{ env.IMAGE_PATH }}-${{ matrix.suffix }}:$TAG_SHA \
+              "${{ env.image_path }}:$TAG_SHA-amd64 \
+              "${{ env.image_path }}:$TAG_SHA-arm64 \
+              "${{ env.image_path }}:$TAG_SHA-arm \
+          done <<< "${{ steps.meta.outputs.tags }}"
+          BASE="latest"
+          echo "Combining per-arch images for base: $BASE"
+          while IFS= read -r LATEST; do
+            [ -z "$TAG_SHA" ] && continue
+            echo "  -> $LATEST"
+            docker buildx imagetools create --tag "$LATEST" \
+              "${{ env.image_path }}:$LATEST-amd64 \
+              "${{ env.image_path }}:$LATEST-arm64 \
+              "${{ env.image_path }}:$LATEST-arm \
           done <<< "${{ steps.meta.outputs.tags }}"
