@@ -88,7 +88,7 @@ jobs:
             printf 'v%d.%d.%d\n' "${major}" "${minor}" "${patch}"
           }
 
-          base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${CI_IMAGE_VER}")"
+          base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${IMAGE_VER}")"
           if [[ ! "${base_numeric_tag}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
             # First run or malformed variable fallback: generate v0.0.1.
             base_numeric_tag="v0.0.0"
