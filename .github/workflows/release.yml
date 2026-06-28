@@ -140,11 +140,12 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            {{ env.image_path }}-${{ matrix.suffix }}
+            ${{ env.image_path }}-${{ matrix.suffix }}
           flavour: auto
           tags: |
-            type=raw,value={{ env.tag }}
-            type=raw,value={{ env.sha_tag }}
+            type=semver,pattern=${{ env.tag }}
+            type=raw,value=${{ env.tag }}
+            type=raw,value=${{ env.sha_tag }}
 
       - name: Build Docker images
         id: build
