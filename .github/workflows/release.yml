@@ -138,7 +138,8 @@ jobs:
         env:
           IMAGE_VERSION: ${{ env.image_version }}
         with:
-          images: ${{ env.image_path }}-${{ matrix.suffix }}
+          images: |
+            ${{ env.image_path }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -154,7 +155,7 @@ jobs:
           build-args: |
             BUILD_VERSION=${{ env.image_version }}
           context: .
-          file: ./Dockerfile
+          file: Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
           labels: ${{ steps.meta.outputs.labels }}
