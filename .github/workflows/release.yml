@@ -136,7 +136,7 @@ jobs:
             ${{ steps.getenv.output.image_path }}
           platform: ${{ matrix.platform }}
           tags: |
-            type=semver,pattern={{ steps.getenv.output.tag }},suffix=-${{ matrix.suffix }}
+            type=semver,pattern=${{ steps.getenv.output.tag }},suffix=-${{ matrix.suffix }}
             type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.suffix }}
             type=raw,value=${{ steps.getenv.output.sha_tag }},suffix=-${{ matrix.suffix }}
 
