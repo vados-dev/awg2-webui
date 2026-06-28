@@ -167,7 +167,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
 
-      - name: Enforce 15MB image size budget
+      - name: Enforce 45MB image size budget
         run: |
           set -euo pipefail
           FIRST_TAG=$(printf '%s\n' '${{ steps.meta.outputs.tags }}' | head -n1)
@@ -187,6 +187,16 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+         ref: main
+         
+      - name: Prepare
+        run: |
+          suffix="amd64, arm64, arm"
+          echo "PLATFORM_PAIR=${suffix//\//-}" >> $GITHUB_ENV
+          
       - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -197,17 +207,26 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         env:
-          IMAGE_VERSION: ${{ env.image_version }}
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_VERSION: ${{ vars.PREVIOUS_TAG || '' }}
+          IMAGE_VERSION: ${{ env.tag }}
+          TAG: ${{ env.tag }}
+          TAG_SHA: ${{ env.tag_sha }}
+          TAG_LATEST: "latest"
         with:
-          images: ${{ env.image_path }}-${{ matrix.suffix }}
+          images: ${{ env.image_path }}
           flavor: |
             latest=true
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=${{ env.tag }}
-            type=raw,value=${{ env.sha_tag }}
+            type=raw,value=${TAG},suffix=${{ matrix.suffix }}
+            type=raw,value=${TAG_SHA}
+            type=raw,value=${TAG_LATEST}
 
       - name: Create multi-arch manifests
+        env:
+          TAG: ${{ env.tag }}
+          TAG_SHA: ${{ env.tag_sha }}
         run: |
           set -euo pipefail
           BASE="${{ env.tag }}"
