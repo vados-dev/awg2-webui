@@ -137,7 +137,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set metadata
-        id: meta
         uses: docker/metadata-action@v6
         with:
           platform: ${{ matrix.platform }}
