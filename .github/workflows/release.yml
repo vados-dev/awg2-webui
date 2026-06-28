@@ -52,13 +52,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      
+        with:
+         ref: main
+         
+      - name: Prepare
+        run: |
+          platform=${{ matrix.arch.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          
       - name: Get Environment
         id: getenv
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE_TAG: ${{ vars.IMAGE_TAG || '' }}
+          LAST_TAG: ${{ vars.IMAGE_TAG || '' }}
         run: |
           set -euo pipefail
           repo_lc="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
@@ -84,7 +91,7 @@ jobs:
             fi
             printf 'v%d.%d.%d\n' "${major}" "${minor}" "${patch}"
           }
-          base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${IMAGE_TAG}")"
+          base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${LAST_TAG}")"
           if [[ ! "${base_numeric_tag}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
             base_numeric_tag="v0.0.0"
           fi
@@ -111,9 +118,9 @@ jobs:
           fi
           tag="$(next_tag "${highest_numeric_tag}")"
           tag_sanitized="$(echo "${tag}" | tr '/:@ ' '-' | tr -cd 'a-zA-Z0-9._-')"
-          echo "tag=${tag_sanitized}" >> "${GITHUB_OUTPUT}"
-          echo "sha_tag=sha-${GITHUB_SHA::12}" >> "${GITHUB_OUTPUT}"
-          echo "image_path=${image_lc}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag_sanitized}" >> "${GITHUB_ENV}"
+          echo "sha_tag=sha-${GITHUB_SHA::12}" >> "${GITHUB_ENV}"
+          echo "image_path=${image_lc}" >> "${GITHUB_ENV}"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v4
@@ -133,12 +140,11 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            ${{ steps.getenv.output.image_path }}
-          platform: ${{ matrix.platform }}
+            {{ env.image_path }}-${{ matrix.suffix }}
+          flavour: auto
           tags: |
-            type=semver,pattern=${{ steps.getenv.output.tag }},suffix=-${{ matrix.suffix }}
-            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.suffix }}
-            type=raw,value=${{ steps.getenv.output.sha_tag }},suffix=-${{ matrix.suffix }}
+            type=raw,value={{ env.tag }}
+            type=raw,value={{ env.sha_tag }}
 
       - name: Build Docker images
         id: build
