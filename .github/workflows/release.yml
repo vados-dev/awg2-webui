@@ -65,7 +65,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          LAST_TAG: ${{ vars.IMAGE_TAG || '' }}
+          PREVIOUS_VERSION: ${{ vars.PREVIOUS_TAG || '' }}
         run: |
           set -euo pipefail
           repo_lc="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
@@ -91,7 +91,7 @@ jobs:
             fi
             printf 'v%d.%d.%d\n' "${major}" "${minor}" "${patch}"
           }
-          base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${LAST_TAG}")"
+          base_numeric_tag="$(sed -E 's/^(v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/' <<< "${PREVIOUS_VERSION}")"
           if [[ ! "${base_numeric_tag}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
             base_numeric_tag="v0.0.0"
           fi
@@ -117,11 +117,14 @@ jobs:
             highest_numeric_tag="${base_numeric_tag}"
           fi
           tag="$(next_tag "${highest_numeric_tag}")"
+          version="$(echo "${tag}")"
           tag_sanitized="$(echo "${tag}" | tr '/:@ ' '-' | tr -cd 'a-zA-Z0-9._-')"
+          version_sanitized="$(echo "${tag_sanitized}")"
           echo "tag=${tag_sanitized}" >> "${GITHUB_ENV}"
           echo "sha_tag=sha-${GITHUB_SHA::12}" >> "${GITHUB_ENV}"
           echo "image_path=${image_lc}" >> "${GITHUB_ENV}"
-          echo "image_version=${tag_sanitized}" >> "${GITHUB_ENV}"
+          echo "previous_version=${PREVIOUS_VERSION}" >> "${GITHUB_ENV}"
+          echo "image_version=${version_sanitized}" >> "${GITHUB_ENV}"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v4
@@ -144,7 +147,7 @@ jobs:
         with:
           images: ${{ env.image_path }}-${{ matrix.suffix }}
           flavor: |
-            latest=auto
+            latest=true
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=${{ env.tag }}
@@ -193,23 +196,31 @@ jobs:
       - name: Set metadata
         id: meta
         uses: docker/metadata-action@v6
+        env:
+          IMAGE_VERSION: ${{ env.image_version }}
         with:
           images: ${{ env.image_path }}-${{ matrix.suffix }}
+          flavor: |
+            latest=true
           tags: |
-            type=semver,pattern=${{ env.tag }}
+            type=semver,pattern={{version}}
             type=raw,value=${{ env.tag }}
             type=raw,value=${{ env.sha_tag }}
 
       - name: Create multi-arch manifests
         run: |
           set -euo pipefail
-          BASE="${{ steps.getenv.output.tag }}"
+          BASE="${{ steps.meta.output.tags }}"
           echo "Combining per-arch images for base: $BASE"
           while IFS= read -r TAG; do
             [ -z "$TAG" ] && continue
             echo "  -> $TAG"
             docker buildx imagetools create --tag "$TAG" \
-              "${{ env.IMAGE }}:${BASE}-amd64" \
-              "${{ env.IMAGE }}:${BASE}-arm64" \
-              "${{ env.IMAGE }}:${BASE}-armv7"
+              "${{ env.IMAGE_PATH }}-${{ matrix.suffix }}:$TAG \
+          done <<< "${{ steps.meta.outputs.tags }}"
+          while IFS= read -r TAG_SHA; do
+            [ -z "$TAG_SHA" ] && continue
+            echo "  -> $TAG_SHA"
+            docker buildx imagetools create --tag "$TAG_SHA" \
+              "${{ env.IMAGE_PATH }}-${{ matrix.suffix }}:$TAG_SHA \
           done <<< "${{ steps.meta.outputs.tags }}"
