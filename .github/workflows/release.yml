@@ -140,7 +140,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.image_path }}-${{ matrix.suffix }}
-          flavor: auto
+          flavor: true
           tags: |
             type=semver,pattern=${{ env.tag }}
             type=raw,value=${{ env.tag }}
