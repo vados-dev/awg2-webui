@@ -1,79 +1,97 @@
 name: Build & Push Multi-arch Docker Image
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+#    inputs:
+#      build_platforms:
+#        description: "Build platforms e.g. (linux/amd64,linux/arm64,linux/arm/v7)"
+#        required: true
+#        default: "linux/amd64,linux/arm/v7"
+#        type: string
   push:
-    branches: [main, master]
+    branches: [main]
     tags: ["v*.*.*"]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 env:
-  IMAGE: ghcr.io/vados-dev/awg2-webui
+  DEFAULT_BRANCH: main
+  GITHUB_CONTAINER_PREFIX: ghcr.io
+  DOCKER_IMAGE: awg2-webui
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-jobs:
-  build:
-    name: Build (${{ github.ref_type == 'tag' && github.ref_name || 'latest' }})
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  docker-build:
+    name: Build Docker
+    runs-on: ${{ matrix.arch.os }}
+    if: github.repository_owner == 'vados-dev'
+    permissions:
+      packages: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - platform: linux/amd64
+            os: ubuntu-latest
+          - platform: linux/arm/v7
+            os: ubuntu-24.04-arm
+          #- platform: linux/arm64
+          #  os: ubuntu-24.04-arm
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+        with:
+         ref: ${{ env.DEFAULT_BRANCH }}
+         
+      - name: Prepare
+        run: |
+          platform=${{ matrix.arch.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE }}
+          images: |
+            ${{ env.GITHUB_CONTAINER_PREFIX }}/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+          flavor: |
+            latest=false
+          labels: |
+            maintainer={{ github.actor }}
+            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+            org.opencontainers.image.revision={{commit_short}}
+            org.opencontainers.image.version={{version}}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
-        with:
-          platforms: linux/amd64,linux/arm/v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-
-#      - name: Log in to Docker Hub
-#        if: github.event_name != 'pull_request'
-#        uses: docker/login-action@v4
-#        with:
-#          username: 
-#          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
-          registry: ghcr.io
+          registry: ${{ env.GITHUB_CONTAINER_PREFIX }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_PASS }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm/v7
-          push: ${{ github.event_name != 'pull_request' }}
+          platforms: ${{ matrix.arch.platform }}
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.ref.name=${{ steps.meta.outputs.version }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
 
-      - name: Summary
-        if: github.event_name != 'pull_request'
-        run: |
-          echo "### ✅ Published to Docker Hub" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "**Platforms:** linux/amd64 · linux/arm/v7" >> $GITHUB_STEP_SUMMARY
+  
