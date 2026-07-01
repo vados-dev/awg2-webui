@@ -8,13 +8,18 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
-   workflow_dispatch:
-#  push:
-#    paths-ignore:
-#      - '**/*.md'
-#      - 'assets/**'
-#      - 'LICENSE'
-#      - 'NOTICE'
+  workflow_dispatch:
+  push:
+    branches: main
+    tags:
+      - 'v*.*.*'
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/build.yml'
+      - '.github/workflows/release.yml'
+      - 'assets/**'
+      - 'LICENSE'
+      - 'NOTICE'
 #  pull_request:
 #    paths-ignore:
 #      - '**/*.md'
@@ -126,7 +131,7 @@ jobs:
       - name: Build
         run: |
           mkdir -p build
-          bash build.sh \
+          bash build_oci.sh \
             "${{ matrix.platform }}" "${{ matrix.arch }}" "${{ matrix.muslcc_tag }}" "${{ github.ref_name }}" build
 
       - name: Upload artifacts
