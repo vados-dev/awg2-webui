@@ -1,18 +1,19 @@
 name: CI
 
 on:
-  push:
-    paths-ignore:
-      - '**/*.md'
-      - 'assets/**'
-      - 'LICENSE'
-      - 'NOTICE'
-  pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - 'assets/**'
-      - 'LICENSE'
-      - 'NOTICE'
+   workflow_dispatch:
+#  push:
+#    paths-ignore:
+#      - '**/*.md'
+#      - 'assets/**'
+#      - 'LICENSE'
+#      - 'NOTICE'
+#  pull_request:
+#    paths-ignore:
+#      - '**/*.md'
+#      - 'assets/**'
+#      - 'LICENSE'
+#      - 'NOTICE'
 
 jobs:
   lint:
