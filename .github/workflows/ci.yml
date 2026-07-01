@@ -1,18 +1,16 @@
 name: CI
 
 env:
-  IMAGE: ${GITHUB_REPOSITORY}
+  IMAGE: awg2-webui
   DEF_ARCHS: "amd64 arm mips"
 #  "arm64 arm armv5 amd64 mips mipsel mips64le ppc64le 386"
   REGISTRY: ghcr.io
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
-  workflow_dispatch:
   push:
-    branches: main
-    tags:
-      - 'v*.*.*'
+    branches: [main]
+    tags: ["v*.*.*"]
     paths-ignore:
       - '**/*.md'
       - '.github/workflows/build.yml'
@@ -20,12 +18,14 @@ on:
       - 'assets/**'
       - 'LICENSE'
       - 'NOTICE'
-#  pull_request:
-#    paths-ignore:
-#      - '**/*.md'
-#      - 'assets/**'
-#      - 'LICENSE'
-#      - 'NOTICE'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/build.yml'
+      - '.github/workflows/release.yml'
+      - 'assets/**'
+      - 'LICENSE'
+      - 'NOTICE'
 
 jobs:
   lint:

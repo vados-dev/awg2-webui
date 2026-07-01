@@ -2,9 +2,8 @@ name: Release Docker image
 
 on:
   push:
-    branches: main
-    tags:
-      - 'v*.*.*'
+    branches: [main]
+    tags: ["v*.*.*"]
     paths-ignore:
       - '**/*.md'
       - '.github/workflows/build.yml'
@@ -34,27 +33,31 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEF_ARCH: amd64,arm64,arm
+  DEFAULT_BRANCH: main
   REGISTRY: ghcr.io
-  IMAGE: awg2-webui
+  IMAGE: ${{ github.repository }}
+  IMAGE_PATH: ghcr.io/${{ github.repository }}
+  IMAGE_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    outputs:
-      image_ref: ${{ steps.meta.outputs.image_ref }}
-      image_ref_sha: ${{ steps.meta.outputs.image_ref_sha }}
-      image: ${{ steps.meta.outputs.image }}
-      tag: ${{ steps.meta.outputs.tag }}
-      sha_tag: ${{ steps.meta.outputs.sha_tag }}
+  docker-build:
+    name: Build Docker
+    runs-on: ${{ matrix.arch.os }}
     strategy:
       fail-fast: false
+      matrix:
+        arch:
+          - platform: linux/amd64
+            os: ubuntu-latest
+          - platform: linux/arm/v7
+            os: ubuntu-24.04-arm
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-         ref: main
+         ref: ${{ env.DEFAULT_BRANCH }}
          
       - name: Prepare
         run: |
@@ -96,12 +99,12 @@ jobs:
           if [[ ! "${base_numeric_tag}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
             base_numeric_tag="v0.0.0"
           fi
-          regisry_lc="$(echo "${{ env.REGISTRY }}")"
+          registry_lc="$(echo "${{ env.REGISTRY }}")"
           owner_lc="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           repo_name="${GITHUB_REPOSITORY#*/}"
           package_name="${repo_name}"
           package_name_enc="${package_name//\//%2F}"
-          image_lc=${regisry_lc}/${owner_lc}/${package_name_enc}
+          image_lc=${registry_lc}/${owner_lc}/${package_name_enc}
           tags_json="$(gh api -H "Accept: application/vnd.github+json" "/users/${owner_lc}/packages/container/${package_name_enc}/versions?per_page=100" 2>/dev/null || echo '[]')"
           latest_registry_numeric_tag="$(
             jq -r '
@@ -122,10 +125,29 @@ jobs:
           tag_sanitized="$(echo "${tag}" | tr '/:@ ' '-' | tr -cd 'a-zA-Z0-9._-')"
           version_sanitized="$(echo "${tag_sanitized}")"
           echo "tag=${tag_sanitized}" >> "${GITHUB_ENV}"
-          echo "sha_tag=sha-${GITHUB_SHA::12}" >> "${GITHUB_ENV}"
+          echo "tag_sha=sha-${GITHUB_SHA::12}" >> "${GITHUB_ENV}"
           echo "image_path=${image_lc}" >> "${GITHUB_ENV}"
           echo "previous_version=${PREVIOUS_VERSION}" >> "${GITHUB_ENV}"
           echo "image_version=${version_sanitized}" >> "${GITHUB_ENV}"
+
+      - name: Set metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          IMAGE_VERSION: ${{ env.image_version }}
+          IMAGE: ${{ env.image_path }}
+          TAG: ${{ env.tag }}
+          TAG_SHA: ${{ env.tag_sha }}
+        with:
+          images: |
+            ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=raw,value=${{ env.TAG }}
+            type=raw,value=${{ env.TAG_SHA }}
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v4
@@ -139,22 +161,6 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        env:
-          IMAGE_VERSION: ${{ env.image_version }}
-        with:
-          images: |
-            ${{ env.image_path }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=raw,value=${{ env.tag }}
-            type=raw,value=${{ env.sha_tag }}
 
       - name: Build Docker images
         id: build
