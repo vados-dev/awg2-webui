@@ -5,6 +5,14 @@ on:
     branches: main
     tags:
       - 'v*.*.*'
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/build.yml'
+      - '.github/workflows/release.yml'
+      - 'assets/**'
+      - 'LICENSE'
+      - 'NOTICE'
+
   workflow_dispatch:
     inputs:
       suffixes:
