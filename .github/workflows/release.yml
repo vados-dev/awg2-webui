@@ -24,10 +24,6 @@ on:
         required: true
         default: 'v0.0.1'
 
-permissions:
-  contents: read
-  packages: write
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -62,7 +58,10 @@ jobs:
       - name: Prepare
         run: |
           platform=${{ matrix.arch.platform }}
+          suffix=${{ matrix.arch.suffix }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          echo "SUFFIX_PAIR=${suffix//\//-}" >> $GITHUB_ENV
+          echo "REGISTRY_IMAGE=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE }}" >> $GITHUB_ENV
           
       - name: Get Environment
         id: getenv
@@ -135,7 +134,7 @@ jobs:
         uses: docker/metadata-action@v6
         env:
           IMAGE_VERSION: ${{ env.image_version }}
-          IMAGE: ${{ env.image_path }}
+          IMAGE: ${{ env.REGISTRY_IMAGE }}
           TAG: ${{ env.tag }}
           TAG_SHA: ${{ env.tag_sha }}
         with:
@@ -165,22 +164,29 @@ jobs:
       - name: Build Docker images
         id: build
         uses: docker/build-push-action@v7
+        env:
+          IMAGE_VERSION: ${{ env.image_version }}
+          IMAGE: ${{ env.REGISTRY_IMAGE }}
+          TAG: ${{ env.tag }}
+          TAG_SHA: ${{ env.tag_sha }}
         with:
-          build-args: |
-            BUILD_VERSION=${{ env.image_version }}
+          tags: ${{ env.IMAGE }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.ref.name=${{ steps.meta.outputs.version }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           context: .
           file: Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: ${{ matrix.arch.platform }}
           push: true
-          labels: ${{ steps.meta.outputs.labels }}
-          annotations: ${{ steps.meta.outputs.annotations }}
-          tags: ${{ steps.meta.outputs.tags }}
-            - ${{ steps.meta.outputs.image }}-${{ matrix.suffix }}:${{ steps.meta.outputs.tag }}
-            - ${{ steps.meta.outputs.image }}-${{ matrix.suffix }}:${{ steps.meta.outputs.sha_tag }}
-            - ${{ steps.meta.outputs.image }}-${{ matrix.suffix }}:${{ steps.meta.outputs.tags }}
-            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${{ matrix.suffix }}
-            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha_tag }}-${{ matrix.suffix }}
-            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tags }}-${{ matrix.suffix }}
+          build-args: |
+            BUILD_VERSION=${{ env.image_version }}
+#            - ${{ steps.meta.outputs.image }}-${{ matrix.arch.suffix }}:${{ steps.meta.outputs.tag }}
+#            - ${{ steps.meta.outputs.image }}-${{ matrix.arch.suffix }}:${{ steps.meta.outputs.tag_sha }}
+#            - ${{ steps.meta.outputs.image }}-${{ matrix.arch.suffix }}:${{ steps.meta.outputs.tags }}
+#            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}-${{ matrix.arch.suffix }}
+#            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag_sha }}-${{ matrix.arch.suffix }}
+#            - ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tags }}-${{ matrix.arch.suffix }}
 
       - name: Enforce 45MB image size budget
         run: |
@@ -190,7 +196,7 @@ jobs:
             | jq '[.layers[].size] | add')
           SIZE_MB=$(awk "BEGIN { printf \"%.2f\", $SIZE_BYTES / 1048576 }")
           echo "Image $FIRST_TAG compressed size: ${SIZE_MB} MB"
-          echo "- ${{ matrix.suffix }}: **${SIZE_MB} MB**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${{ matrix.arch.suffix }}: **${SIZE_MB} MB**" >> "$GITHUB_STEP_SUMMARY"
           if awk -v s="$SIZE_MB" 'BEGIN { exit !(s+0 > 45) }'; then
             echo "Warning: Image exceeds 45MB budget (${SIZE_MB} MB)"
           fi
@@ -222,8 +228,8 @@ jobs:
       - name: Upload image metadata artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ci-image-metadata
-          path: ci-image.env
+          name: image-metadata
+          path: image.env
           if-no-files-found: error
 
       - name: Write summary
@@ -249,18 +255,14 @@ jobs:
           echo "  ${{ steps.meta.outputs.image }}:lts"
           
   manifest:
-    needs: build
+    name: Create multi-arch manifest
+    needs: docker-build
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-         ref: main
-         
-      - name: Prepare
-        run: |
-          suffix="amd64, arm64, arm"
-          echo "PLATFORM_PAIR=${suffix//\//-}" >> $GITHUB_ENV
+         ref: ${{ env.DEFAULT_BRANCH }}
           
       - uses: docker/login-action@v4
         with:
@@ -273,18 +275,18 @@ jobs:
         uses: docker/metadata-action@v6
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIOUS_VERSION: ${{ vars.PREVIOUS_TAG || '' }}
-          IMAGE_VERSION: ${{ env.tag }}
+          PREVIOUS_VERSION: ${{ vars.PREVIOUS_TAG || 'v.0.0.1' }}
+          IMAGE_VERSION: ${{ env.image_version }}
           TAG: ${{ env.tag }}
           TAG_SHA: ${{ env.tag_sha }}
           TAG_LATEST: "latest"
         with:
-          images: ${{ env.image_path }}
+          images: ${{ env }}
           flavor: |
             latest=true
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=${TAG},suffix=${{ matrix.suffix }}
+            type=raw,value=${TAG},suffix=${{ matrix.arch.suffix }}
             type=raw,value=${TAG_SHA}
             type=raw,value=${TAG_LATEST}
 
@@ -301,17 +303,15 @@ jobs:
             echo "  -> $TAG"
             docker buildx imagetools create --tag "$TAG" \
               "${{ env.image_path }}:$TAG-amd64 \
-              "${{ env.image_path }}:$TAG-arm64 \
               "${{ env.image_path }}:$TAG-arm \
           done <<< "${{ steps.meta.outputs.tags }}"
-          BASE="latest"
+          BASE="$TAG_SHA"
           echo "Combining per-arch images for base: $BASE"
           while IFS= read -r TAG_SHA; do
             [ -z "$TAG_SHA" ] && continue
             echo "  -> $TAG_SHA"
             docker buildx imagetools create --tag "$TAG_SHA" \
               "${{ env.image_path }}:$TAG_SHA-amd64 \
-              "${{ env.image_path }}:$TAG_SHA-arm64 \
               "${{ env.image_path }}:$TAG_SHA-arm \
           done <<< "${{ steps.meta.outputs.tags }}"
           BASE="latest"
@@ -321,6 +321,5 @@ jobs:
             echo "  -> $LATEST"
             docker buildx imagetools create --tag "$LATEST" \
               "${{ env.image_path }}:$LATEST-amd64 \
-              "${{ env.image_path }}:$LATEST-arm64 \
               "${{ env.image_path }}:$LATEST-arm \
           done <<< "${{ steps.meta.outputs.tags }}"
