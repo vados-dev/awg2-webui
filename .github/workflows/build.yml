@@ -8,11 +8,26 @@ on:
 #        required: true
 #        default: "linux/amd64,linux/arm/v7"
 #        type: string
-#  push:
-#    branches: [main]
- #   tags: ["v*.*.*"]
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
+      - 'assets/**'
+      - 'LICENSE'
+      - 'NOTICE'
+
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
+      - 'assets/**'
+      - 'LICENSE'
+      - 'NOTICE'
 
 env:
   DEFAULT_BRANCH: main
