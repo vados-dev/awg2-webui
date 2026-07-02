@@ -155,13 +155,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY_IMAGE }}
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=master-
-          flavor: |
-            latest=true
 
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
