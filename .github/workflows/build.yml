@@ -105,13 +105,13 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.arch.platform }}
-          tags: ${{ env.REGISTRY_IMAGE }}
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.ref.name=${{ steps.meta.outputs.version }}
-          build-args: |
-            BUILDKIT_CONTEXT_KEEP_GIT_DIR=true
+          tags: ${{ env.REGISTRY_IMAGE }}
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=build-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=min,scope=build-${{ env.PLATFORM_PAIR }}
 
       - name: Export digest
         run: |
